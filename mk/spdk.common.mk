@@ -270,6 +270,14 @@ endif
 SYS_LIBS += -lufc
 endif
 
+ifeq ($(CONFIG_LAMINAR),y)
+ifneq ($(strip $(CONFIG_LAMINAR_PATH)),)
+SYS_LIBS += -L$(CONFIG_LAMINAR_PATH)/lib/x86_64-linux-gnu
+LDFLAGS += -Wl,-rpath=$(CONFIG_LAMINAR_PATH)/lib/x86_64-linux-gnu
+endif
+SYS_LIBS += -lswitchtoe -lmlx5 -lfmt
+endif
+
 ifeq ($(CONFIG_DEBUG), y)
 COMMON_CFLAGS += -DDEBUG -g3 -O0 -fno-omit-frame-pointer
 else

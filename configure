@@ -91,6 +91,10 @@ function usage() {
 	echo " --without-fc              If an argument is provided, it is considered a directory containing"
 	echo "                           libufc.a and fc_lld.h. Otherwise the regular system paths will"
 	echo "                           be searched."
+	echo " --with-laminar[=DIR]      Build Laminar transport for NVMf target."
+	echo " --without-laminar		 If an argument is provided, it is considered a directory containing"
+	echo "                           libswitchtoe.so and switchtoe.h. Otherwise the regular system paths"
+	echo "							 will be searched." 	
 	echo " --with-daos[=DIR]         Build DAOS bdev module."
 	echo " --without-daos            No path required."
 	echo " --with-shared             Build spdk shared libraries."
@@ -492,6 +496,18 @@ for i in "$@"; do
 		--without-fc)
 			CONFIG[FC]=n
 			CONFIG[FC_PATH]=
+			;;
+		--with-laminar=*)
+			CONFIG[LAMINAR]=y
+			CONFIG[LAMINAR_PATH]=$(readlink -f ${i#*=})
+			;;
+		--with-laminar)
+			CONFIG[LAMINAR]=y
+			CONFIG[LAMINAR_PATH]=
+			;;
+		--without-laminar)
+			CONFIG[LAMINAR]=n
+			CONFIG[LAMINAR_PATH]=
 			;;
 		--with-daos)
 			CONFIG[DAOS]=y
@@ -947,6 +963,12 @@ fi
 if [[ "${CONFIG[FC]}" = "y" ]]; then
 	if [[ -n "${CONFIG[FC_PATH]}" ]]; then
 		check_dir "${CONFIG[FC_PATH]}"
+	fi
+fi
+
+if [[ "${CONFIG[LAMINAR]}" = "y" ]]; then
+	if [[ -n "${CONFIG[LAMINAR_PATH]}" ]]; then
+		check_dir "${CONFIG[LAMINAR_PATH]}"
 	fi
 fi
 

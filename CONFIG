@@ -107,6 +107,10 @@ CONFIG_NVME_CUSE=y
 CONFIG_FC=n
 CONFIG_FC_PATH=
 
+# Enable Laminar support for the NVMf target.
+CONFIG_LAMINAR=n
+CONFIG_LAMINAR_PATH=
+
 # Build Ceph RBD support in bdev modules
 # Requires librbd development libraries
 CONFIG_RBD=n

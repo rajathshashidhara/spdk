@@ -454,6 +454,11 @@ enum spdk_nvme_transport_type {
 	SPDK_NVME_TRANSPORT_TCP = SPDK_NVMF_TRTYPE_TCP,
 
 	/**
+	 * Laminar-ZC TCP Transport (Not spec defined)
+	 */
+	SPDK_NVME_TRANSPORT_LAMINAR = 512,
+
+	/**
 	 * Custom VFIO User Transport (Not spec defined)
 	 */
 	SPDK_NVME_TRANSPORT_VFIOUSER = 1024,

@@ -52,6 +52,13 @@ CFLAGS += -I$(CONFIG_FC_PATH)
 endif
 endif
 
+ifeq ($(CONFIG_LAMINAR),y)
+C_SRCS += laminar.c
+ifneq ($(strip $(CONFIG_LAMINAR_PATH)),)
+CFLAGS += -I$(CONFIG_LAMINAR_PATH)/include
+endif
+endif
+
 SPDK_MAP_FILE = $(abspath $(CURDIR)/spdk_nvmf.map)
 
 include $(SPDK_ROOT_DIR)/mk/spdk.lib.mk
