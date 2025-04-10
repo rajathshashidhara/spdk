@@ -46,6 +46,13 @@ CFLAGS += -D_FILE_OFFSET_BITS=64
 LOCAL_SYS_LIBS += -lfuse3
 endif
 
+ifeq ($(CONFIG_LAMINAR),y)
+C_SRCS += nvme_laminar.c
+ifneq ($(strip $(CONFIG_LAMINAR_PATH)),)
+CFLAGS += -I$(CONFIG_LAMINAR_PATH)/include
+endif
+endif
+
 CFLAGS += -Wpointer-arith
 
 SPDK_MAP_FILE = $(abspath $(CURDIR)/spdk_nvme.map)
