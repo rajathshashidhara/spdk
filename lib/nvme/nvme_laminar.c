@@ -23,17 +23,17 @@
 
 #include "spdk_internal/nvme_tcp.h"
 
-#include "switchtoe.h"
+#include "laminar.h"
 
 /* NVMe Laminar transport extensions for spdk_nvme_ctrlr */
 struct nvme_laminar_ctrlr {
     struct spdk_nvme_ctrlr  ctrlr;
-    struct switchtoe_context *sock_group;   /*> For pending adminq connections. */
+    struct laminar_context *sock_group;   /*> For pending adminq connections. */
 };
 
 struct nvme_laminar_poll_group {
 	struct spdk_nvme_transport_poll_group group;
-    struct switchtoe_context *sock_group;
+    struct laminar_context *sock_group;
 	uint32_t completions_per_qpair;
 	int64_t num_completions;
 
@@ -44,7 +44,7 @@ struct nvme_laminar_poll_group {
 /* NVMe Laminar qpair extensions for spdk_nvme_qpair */
 struct nvme_laminar_qpair {
     struct spdk_nvme_qpair  qpair;
-    struct switchtoe_connection *sock;
+    struct laminar_connection *sock;
 
     TAILQ_HEAD(, nvme_tcp_req)		free_reqs;
 	TAILQ_HEAD(, nvme_tcp_req)		outstanding_reqs;
@@ -303,7 +303,7 @@ nvme_laminar_ctrlr_construct(const struct spdk_nvme_transport_id *trid,
 
     /* Init only once. */
     if (__sync_bool_compare_and_swap(&__init_done, 0, 1)) {
-        if (switchtoe_init() != 0) {
+        if (laminar_init() != 0) {
             SPDK_ERRLOG("could not initialize laminar\n");
             return NULL;
         }
@@ -328,7 +328,7 @@ nvme_laminar_ctrlr_construct(const struct spdk_nvme_transport_id *trid,
     }
 
     /* Create context before creating qpair. */
-    if (switchtoe_context_create(&lctrlr->sock_group, (uintptr_t) lctrlr) != 0) {
+    if (laminar_context_create(&lctrlr->sock_group, (uintptr_t) lctrlr) != 0) {
         SPDK_ERRLOG("failed to create context\n");
         nvme_laminar_ctrlr_destruct(&lctrlr->ctrlr);
         return NULL;

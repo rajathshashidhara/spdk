@@ -93,7 +93,7 @@ function usage() {
 	echo "                           be searched."
 	echo " --with-laminar[=DIR]      Build Laminar transport for NVMf target."
 	echo " --without-laminar		 If an argument is provided, it is considered a directory containing"
-	echo "                           libswitchtoe.so and switchtoe.h. Otherwise the regular system paths"
+	echo "                           liblaminar.so and laminar.h. Otherwise the regular system paths"
 	echo "							 will be searched." 	
 	echo " --with-daos[=DIR]         Build DAOS bdev module."
 	echo " --without-daos            No path required."

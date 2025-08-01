@@ -275,7 +275,7 @@ ifneq ($(strip $(CONFIG_LAMINAR_PATH)),)
 SYS_LIBS += -L$(CONFIG_LAMINAR_PATH)/lib/x86_64-linux-gnu
 LDFLAGS += -Wl,-rpath=$(CONFIG_LAMINAR_PATH)/lib/x86_64-linux-gnu
 endif
-SYS_LIBS += -lswitchtoe -lmlx5 -lfmt
+SYS_LIBS += -llaminar -lmlx5 -lfmt
 endif
 
 ifeq ($(CONFIG_DEBUG), y)
