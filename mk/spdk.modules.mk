@@ -103,6 +103,10 @@ SOCK_MODULES_LIST += sock_uring
 endif
 endif
 
+ifeq ($(CONFIG_LAMINAR),y)
+SOCK_MODULES_LIST += sock_laminar
+endif
+
 ACCEL_MODULES_LIST = accel_error accel_ioat ioat
 ifeq ($(CONFIG_IDXD),y)
 ACCEL_MODULES_LIST += accel_dsa accel_iaa idxd
