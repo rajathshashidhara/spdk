@@ -57,6 +57,21 @@ static struct spdk_sock_map g_map = {
 	.mtx = PTHREAD_MUTEX_INITIALIZER
 };
 
+static int _wrap_laminar_close(int fd)
+{
+	int rc = 0;
+/**
+ * XXX: laminar_close() is unimplemented.
+ * Add a wrapper to ignore the fd until that is fixed.
+ */
+#if 0
+	rc = laminar_close(fd);
+#else
+	SPDK_ERRLOG("laminar_close() called on %d. Skipping...\n", fd);
+#endif
+	return rc;
+}
+
 __attribute((destructor)) static void
 laminar_sock_map_cleanup(void)
 {
@@ -465,19 +480,19 @@ laminar_fd_create(struct addrinfo *res, struct spdk_sock_opts *opts,
 
 	rc = laminar_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof val);
 	if (rc != 0) {
-		laminar_close(fd);
+		_wrap_laminar_close(fd);
 		/* error */
 		return -1;
 	}
 	rc = laminar_setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof val);
 	if (rc != 0) {
-		laminar_close(fd);
+		_wrap_laminar_close(fd);
 		/* error */
 		return -1;
 	}
 
 	if (res->ai_family == AF_INET6) {
-		laminar_close(fd);
+		_wrap_laminar_close(fd);
 		return -1;
 	}
 
@@ -547,7 +562,7 @@ retry:
 				switch (errno) {
 				case EINTR:
 					/* interrupted? */
-					laminar_close(fd);
+					_wrap_laminar_close(fd);
 					goto retry;
 				case EADDRNOTAVAIL:
 					SPDK_ERRLOG("IP address %s not available. "
@@ -557,7 +572,7 @@ retry:
 				/* FALLTHROUGH */
 				default:
 					/* try next family */
-					laminar_close(fd);
+					_wrap_laminar_close(fd);
 					fd = -1;
 					continue;
 				}
@@ -566,7 +581,7 @@ retry:
 			rc = laminar_listen(fd, 512);
 			if (rc != 0) {
 				SPDK_ERRLOG("listen() failed, errno = %d\n", errno);
-				laminar_close(fd);
+				_wrap_laminar_close(fd);
 				fd = -1;
 				break;
 			}
@@ -584,7 +599,7 @@ retry:
 				if (rc != 0 || src_ai == NULL) {
 					SPDK_ERRLOG("getaddrinfo() failed %s (%d)\n",
 						    rc != 0 ? gai_strerror(rc) : "", rc);
-					laminar_close(fd);
+					_wrap_laminar_close(fd);
 					fd = -1;
 					break;
 				}
@@ -592,7 +607,7 @@ retry:
 				if (rc != 0) {
 					SPDK_ERRLOG("bind() failed errno %d (%s:%s)\n", errno,
 						    src_addr ? src_addr : "", portnum);
-					laminar_close(fd);
+					_wrap_laminar_close(fd);
 					fd = -1;
 					freeaddrinfo(src_ai);
 					src_ai = NULL;
@@ -605,7 +620,7 @@ retry:
 			if (rc != 0) {
 				SPDK_ERRLOG("connect() failed, errno = %d\n", errno);
 				/* try next family */
-				laminar_close(fd);
+				_wrap_laminar_close(fd);
 				fd = -1;
 				continue;
 			}
@@ -614,7 +629,7 @@ retry:
 		flag = laminar_fcntl(fd, F_GETFL);
 		if (laminar_fcntl(fd, F_SETFL, flag | O_NONBLOCK) < 0) {
 			SPDK_ERRLOG("fcntl can't set nonblocking mode for socket, fd: %d (%d)\n", fd, errno);
-			laminar_close(fd);
+			_wrap_laminar_close(fd);
 			fd = -1;
 			break;
 		}
@@ -629,7 +644,7 @@ retry:
 	sock = laminar_sock_alloc(fd, &impl_opts);
 	if (sock == NULL) {
 		SPDK_ERRLOG("sock allocation failed\n");
-		laminar_close(fd);
+		_wrap_laminar_close(fd);
 		return NULL;
 	}
 
@@ -681,14 +696,14 @@ _laminar_sock_accept(struct spdk_sock *_sock)
 	flag = laminar_fcntl(fd, F_GETFL);
 	if ((!(flag & O_NONBLOCK)) && (laminar_fcntl(fd, F_SETFL, flag | O_NONBLOCK) < 0)) {
 		SPDK_ERRLOG("fcntl can't set nonblocking mode for socket, fd: %d (%d)\n", fd, errno);
-		laminar_close(fd);
+		_wrap_laminar_close(fd);
 		return NULL;
 	}
 
 	/* Inherit the zero copy feature from the listen socket */
 	new_sock = laminar_sock_alloc(fd, &sock->base.impl_opts);
 	if (new_sock == NULL) {
-		laminar_close(fd);
+		_wrap_laminar_close(fd);
 		return NULL;
 	}
 
@@ -712,7 +727,7 @@ laminar_sock_close(struct spdk_sock *_sock)
 	/* If the socket fails to close, the best choice is to
 	 * leak the fd but continue to free the rest of the sock
 	 * memory. */
-	laminar_close(sock->fd);
+	_wrap_laminar_close(sock->fd);
 
 	pipe_buf = spdk_pipe_destroy(sock->recv_pipe);
 	free(pipe_buf);
@@ -1152,7 +1167,7 @@ _sock_group_impl_create(uint32_t enable_placement_id)
 	group_impl = calloc(1, sizeof(*group_impl));
 	if (group_impl == NULL) {
 		SPDK_ERRLOG("group_impl allocation failed\n");
-		laminar_close(fd);
+		_wrap_laminar_close(fd);
 		return NULL;
 	}
 
@@ -1160,7 +1175,7 @@ _sock_group_impl_create(uint32_t enable_placement_id)
 	if (group_impl->pipe_group == NULL) {
 		SPDK_ERRLOG("pipe_group allocation failed\n");
 		free(group_impl);
-		laminar_close(fd);
+		_wrap_laminar_close(fd);
 		return NULL;
 	}
 
@@ -1386,7 +1401,7 @@ _sock_group_impl_close(struct spdk_sock_group_impl *_group, uint32_t enable_plac
 	}
 
 	spdk_pipe_group_destroy(group->pipe_group);
-	rc = laminar_close(group->fd);
+	rc = _wrap_laminar_close(group->fd);
 	free(group);
 	return rc;
 }
@@ -1429,8 +1444,6 @@ static struct spdk_net_impl g_laminar_net_impl = {
 	.get_opts	= laminar_sock_impl_get_opts,
 	.set_opts	= laminar_sock_impl_set_opts,
 };
-
-SPDK_NET_IMPL_REGISTER_DEFAULT(laminar, &g_laminar_net_impl);
 
 __attribute__((constructor)) static void
 net_impl_register_laminar(void)
