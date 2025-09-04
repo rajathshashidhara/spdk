@@ -198,6 +198,9 @@ struct spdk_nvmf_laminar_qpair {
   uint16_t      initiator_port;
   uint16_t      target_port;
 
+	spdk_nvmf_transport_qpair_fini_cb	fini_cb_fn;
+	void					*fini_cb_arg;
+
   TAILQ_ENTRY(spdk_nvmf_laminar_qpair) link;
 };
 
@@ -489,7 +492,7 @@ nvmf_laminar_accept_poll(void *ctx)
 
   /* TODO: Poll the context. */
   ret = laminar_context_poll(lctx->ctx, lctx->n_events, lctx->ev_buffer, &count);
-  if (ret < 0) {
+  if (spdk_unlikely(ret < 0 && ret != -EAGAIN)) {
     SPDK_ERRLOG("Fail in Laminar listen socket group poll\n");
     return SPDK_POLLER_IDLE;
   }
@@ -638,7 +641,7 @@ nvmf_laminar_qpair_write_mgmt_pdu(struct spdk_nvmf_laminar_qpair *lqpair,
     SPDK_ERRLOG("%s failed to send TX buffer: %ld\n", __func__, ret);
     goto err;
   }
-  
+
   assert(cb_fn != NULL);
   cb_fn(cb_arg);
   return;
@@ -813,11 +816,78 @@ nvmf_laminar_qpair_disconnect(struct spdk_nvmf_laminar_qpair *lqpair)
 {}
 
 static void
+nvmf_laminar_drain_state_queue(struct spdk_nvmf_laminar_qpair *lqpair,
+			   enum spdk_nvmf_tcp_req_state state)
+{
+	struct spdk_nvmf_tcp_req *tcp_req, *req_tmp;
+
+	assert(state != TCP_REQUEST_STATE_FREE);
+	TAILQ_FOREACH_SAFE(tcp_req, &lqpair->tcp_req_working_queue, state_link, req_tmp) {
+		if (state == tcp_req->state) {
+			nvmf_tcp_request_free(tcp_req);
+		}
+	}
+}
+
+static void
+nvmf_laminar_cleanup_all_states(struct spdk_nvmf_laminar_qpair *lqpair)
+{
+  struct spdk_nvmf_tcp_req *tcp_req, *req_tmp;
+
+	nvmf_laminar_drain_state_queue(lqpair, TCP_REQUEST_STATE_TRANSFERRING_CONTROLLER_TO_HOST);
+	nvmf_laminar_drain_state_queue(lqpair, TCP_REQUEST_STATE_NEW);
+
+
+	/* Wipe the requests waiting for buffer from the waiting list */
+	TAILQ_FOREACH_SAFE(tcp_req, &lqpair->tcp_req_working_queue, state_link, req_tmp) {
+		if (tcp_req->state == TCP_REQUEST_STATE_NEED_BUFFER) {
+      SPDK_ERRLOG("How to handle this?\n");
+			// nvmf_tcp_request_get_buffers_abort(tcp_req);
+		}
+	}
+
+	nvmf_laminar_drain_state_queue(lqpair, TCP_REQUEST_STATE_NEED_BUFFER);
+	nvmf_laminar_drain_state_queue(lqpair, TCP_REQUEST_STATE_EXECUTING);
+	nvmf_laminar_drain_state_queue(lqpair, TCP_REQUEST_STATE_TRANSFERRING_HOST_TO_CONTROLLER);
+	nvmf_laminar_drain_state_queue(lqpair, TCP_REQUEST_STATE_AWAITING_R2T_ACK);
+}
+
+static void
 nvmf_laminar_qpair_destroy(struct spdk_nvmf_laminar_qpair *lqpair)
 {
-  /* TODO: Not yet implemented. */
-  /* See: _nvmf_tcp_qpair_destroy(). */
-  SPDK_ERRLOG("Not yet implemented: %s\n", __func__);
+	spdk_nvmf_transport_qpair_fini_cb cb_fn = lqpair->fini_cb_fn;
+	void *cb_arg = lqpair->fini_cb_arg;
+
+	int err = 0;
+
+  SPDK_DEBUGLOG(laminar, "enter\n");
+  nvmf_laminar_cleanup_all_states(lqpair);
+#if 0
+  struct spdk_nvmf_laminar_poll_group   *lgroup;
+  lgroup = lqpair->group;
+  err = laminar_connection_close(lgroup->context->ctx,
+      lqpair->conn);
+  nvmf_laminar_cleanup_all_states(lqpair);
+
+	if (lqpair->state_cntr[TCP_REQUEST_STATE_FREE] != lqpair->resource_count) {
+		SPDK_ERRLOG("lqpair(%p) free tcp request num is %u but should be %u\n", lqpair,
+			    lqpair->state_cntr[TCP_REQUEST_STATE_FREE],
+			    lqpair->resource_count);
+		err++;
+	}
+
+	spdk_dma_free(tqpair->pdus);
+	free(tqpair->reqs);
+	spdk_free(tqpair->bufs);
+  free(lqpair);
+#endif
+
+  if (cb_fn != NULL) {
+    cb_fn(cb_arg);
+  }
+
+  SPDK_DEBUGLOG(laminar, "Leave\n");
+  (void) err;
 }
 
 static void
@@ -877,7 +947,7 @@ nvmf_laminar_capsule_cmd_payload_handle(struct spdk_nvmf_laminar_transport *ltra
   capsule_cmd = &pdu->hdr.capsule_cmd;
   tcp_req = pdu->req;
   assert(tcp_req != NULL);
-  
+
   if (capsule_cmd->common.pdo > SPDK_NVME_TCP_PDU_PDO_MAX_OFFSET) {
     SPDK_ERRLOG("Expected ICReq capsule_cmd pdu offset <= %d, got %c\n",
           SPDK_NVME_TCP_PDU_PDO_MAX_OFFSET, capsule_cmd->common.pdo);
@@ -1288,7 +1358,7 @@ nvmf_laminar_qpair_receive_process(
         assert(tcp_req->req.iovcnt == 1);
         tcp_req->req.iov[0].iov_base = buf;
       }
-      
+
       pdu->rw_offset += read_len;
 
       buf += read_len;
@@ -1472,7 +1542,7 @@ nvmf_laminar_pdu_c2h_data_complete(void *cb_arg)
 {
 	struct spdk_nvmf_tcp_req *tcp_req = cb_arg;
 	struct spdk_nvmf_laminar_qpair *lqpair = SPDK_CONTAINEROF(tcp_req->req.qpair,
-					     struct spdk_nvmf_laminar_qpair, qpair); 
+					     struct spdk_nvmf_laminar_qpair, qpair);
 
   assert(lqpair != NULL);
 
@@ -1495,7 +1565,7 @@ nvmf_laminar_send_c2h_data(struct spdk_nvmf_laminar_qpair *lqpair,
   int rc;
 
   SPDK_DEBUGLOG(laminar, "enter, lqpair=%p\n", lqpair);
- 
+
   rsp_pdu = nvmf_tcp_req_pdu_init(tcp_req);
   assert(rsp_pdu != NULL);
 
@@ -1627,7 +1697,7 @@ nvmf_tcp_req_process(struct spdk_nvmf_laminar_transport *ltransport,
     case TCP_REQUEST_STATE_NEW:
       /* copy the cmd from the receive pdu */
       tcp_req->cmd = lqpair->pdu_in_progress->hdr.capsule_cmd.ccsqe;
-      
+
       /* NOTE: We do not support fusing! */
       tcp_req->req.xfer = spdk_nvmf_req_get_xfer(&tcp_req->req);
 
@@ -1767,7 +1837,7 @@ static void
 nvmf_laminar_opts_init(struct spdk_nvmf_transport_opts *opts)
 {
   opts->max_queue_depth =	SPDK_NVMF_LAMINAR_DEFAULT_MAX_IO_QUEUE_DEPTH;
-  opts->max_qpairs_per_ctrlr = SPDK_NVMF_LAMINAR_DEFAULT_MAX_QPAIRS_PER_CTRLR; 
+  opts->max_qpairs_per_ctrlr = SPDK_NVMF_LAMINAR_DEFAULT_MAX_QPAIRS_PER_CTRLR;
   opts->in_capsule_data_size = SPDK_NVMF_LAMINAR_DEFAULT_IN_CAPSULE_DATA_SIZE;
   opts->max_io_size =	SPDK_NVMF_LAMINAR_DEFAULT_MAX_IO_SIZE;
   opts->io_unit_size = SPDK_NVMF_LAMINAR_DEFAULT_IO_UNIT_SIZE;
@@ -2108,6 +2178,24 @@ nvmf_laminar_poll_group_remove(struct spdk_nvmf_transport_poll_group *group,
   return -ENOTSUP;
 }
 
+static void
+nvmf_laminar_close_qpair(struct spdk_nvmf_qpair *qpair,
+                spdk_nvmf_transport_qpair_fini_cb cb_fn, void *cb_arg)
+{
+	struct spdk_nvmf_laminar_qpair *lqpair;
+
+	SPDK_DEBUGLOG(laminar, "Qpair: %p\n", qpair);
+
+	lqpair = SPDK_CONTAINEROF(qpair, struct spdk_nvmf_laminar_qpair, qpair);
+
+  assert(lqpair->fini_cb_fn == NULL);
+  lqpair->fini_cb_fn = cb_fn;
+  lqpair->fini_cb_arg = cb_arg;
+
+	nvmf_laminar_qpair_set_state(lqpair, NVMF_LAMINAR_QPAIR_STATE_EXITED);
+  nvmf_laminar_qpair_destroy(lqpair);
+}
+
 static int
 nvmf_laminar_poll_group_poll(struct spdk_nvmf_transport_poll_group *group)
 {
@@ -2127,7 +2215,7 @@ nvmf_laminar_poll_group_poll(struct spdk_nvmf_transport_poll_group *group)
   }
 
   rc = laminar_context_poll(lctx->ctx, lctx->n_events, lctx->ev_buffer, &num_events);
-  if (spdk_unlikely(rc < 0)) {
+  if (spdk_unlikely(rc < 0 && rc != -EAGAIN)) {
     SPDK_ERRLOG("Failed to poll context=%p\n", lctx);
     return rc;
   }
@@ -2279,7 +2367,7 @@ const struct spdk_nvmf_transport_ops spdk_nvmf_transport_laminar = {
   .req_free = nvmf_laminar_req_free,
   .req_complete = nvmf_laminar_req_complete,
 
-  .qpair_fini = NULL,
+  .qpair_fini = nvmf_laminar_close_qpair,
   .qpair_get_local_trid = nvmf_laminar_qpair_get_local_trid,
   .qpair_get_peer_trid = nvmf_laminar_qpair_get_peer_trid,
   .qpair_get_listen_trid = nvmf_laminar_qpair_get_listen_trid,
