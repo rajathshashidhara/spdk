@@ -1740,6 +1740,9 @@ work_fn(void *arg)
 		}
 	}
 
+	if (worker->lcore == g_main_core) {
+		sleep(2);
+	}
 	rc = pthread_barrier_wait(&g_worker_sync_barrier);
 	if (rc != 0 && rc != PTHREAD_BARRIER_SERIAL_THREAD) {
 		printf("ERROR: failed to wait on thread sync barrier\n");
@@ -3365,6 +3368,7 @@ main(int argc, char **argv)
 	main_worker = NULL;
 	TAILQ_FOREACH(worker, &g_workers, link) {
 		if (worker->lcore != g_main_core) {
+			sleep(1);
 			spdk_env_thread_launch_pinned(worker->lcore, work_fn, worker);
 		} else {
 			assert(main_worker == NULL);
@@ -3372,6 +3376,7 @@ main(int argc, char **argv)
 		}
 	}
 
+	sleep(1);
 	assert(main_worker != NULL);
 	work_fn(main_worker);
 
